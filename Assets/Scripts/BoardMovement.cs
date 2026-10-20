@@ -13,14 +13,14 @@ public class BoardMovement : MonoBehaviour
 
     void Start()
     {
-        waypoints = tm.getTileMap();
+        waypoints = tm.tileMap;
     }
 
     
     void Update()
     {
  
-        if (GameManager.Instance.gameState == GameState.BoardGame && isMoving == true)
+        if (GameManager.Singleton.gameState == GameState.BoardGame && isMoving == true)
         {
             Vector3 offset = new Vector3(0, 12, 0);
             transform.position = Vector3.MoveTowards(transform.position, waypoints[2].position + offset, speed * Time.deltaTime);

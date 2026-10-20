@@ -10,18 +10,18 @@ public enum GameState
 
 public class GameManager : MonoBehaviour
 {
-    public static GameManager Instance { get; private set; }
+    public static GameManager Singleton { get; private set; }
 
     public GameState gameState;
 
     void Awake()
     {
-        if (Instance != null)
+        if (Singleton != null)
         {
             Debug.LogError("GameManager уже существует!");
             return;
         }
-        Instance = this;
+        Singleton = this;
     }
 
     void Start()

@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class TileMap : MonoBehaviour
 {
-    private Transform[] tileMap;
+    public Transform[] tileMap;
 
     void Start()
     {
@@ -16,8 +16,6 @@ public class TileMap : MonoBehaviour
     {
         
     }
-
-    public Transform[] getTileMap() { return tileMap; }
 
     void OnDrawGizmosSelected()
     {
