@@ -3,36 +3,63 @@ using UnityEngine;
 
 public class BoardPathMover : MonoBehaviour
 {
-    [SerializeField] private BoardPath boardPath;
-    [SerializeField] private float moveSpeed = 3f;
 
-    [SerializeField] private int startingWaypointIndex;
-    private int currentWaypointIndex;
-    private int targetWaypointIndex;
+    [Header("Movement On Board")]
+    [SerializeField] private float moveSpeed = 3f;
+    [SerializeField] private float acceleration = 3f;
+    private float currentSpeed;
+
+    [SerializeField] private BoardCell startingCell;
+    private BoardCell currentCell;
+    private BoardCell targetCell;
+
     private int remainingSteps;
     private bool isMoving;
+    private bool waitingForBranchChoice;
 
-    public int CurrentWaypointIndex => currentWaypointIndex;
+    private BoardCellView[] highlightedCells; // Для развилок
 
 
     public event Action OnMovementComplete;
 
+    #region ТЕСТЫ
+    [ContextMenu("Test: Roll The Dice")]
+    public void TestRollTheDice()
+    {
+        int roll = UnityEngine.Random.Range(1, 11);
+        Debug.Log("Бросок кубика: " + roll);
+        MoveSteps(roll);
+    }
+
+    [ContextMenu("Test: 3 steps")]
+    public void TestThreeSteps()
+    {
+        MoveSteps(3);
+    }
+
+    [ContextMenu("Test: choose 1 brench")]
+    public void TestFirstBranch()
+    {
+        SelectBranch(0);
+    }
+
+    [ContextMenu("Test: choose 2 brench")]
+    public void TestSecondBranch()
+    {
+        SelectBranch(1);
+    }
+    #endregion
 
     private void Start()
     {
-        if (boardPath == null || boardPath.WaypointCount == 0)
+        if (startingCell == null)
+        {
+            Debug.LogError("BoardPathMover: starting cell is not assigned.", this);
             return;
+        }
 
-        currentWaypointIndex = Mathf.Clamp(
-            startingWaypointIndex,
-            0,
-            boardPath.WaypointCount - 1
-        );
-
-        Transform startWaypoint = boardPath.GetWaypoint(currentWaypointIndex);
-
-        if (startWaypoint != null)
-            transform.position = startWaypoint.position;
+        transform.position = startingCell.CellTransform.position;
+        currentCell = startingCell;
     }
 
     private void Update()
@@ -40,7 +67,13 @@ public class BoardPathMover : MonoBehaviour
         if (!isMoving)
             return;
 
-        Transform target = boardPath.GetWaypoint(targetWaypointIndex);
+        if (targetCell == null)
+        {
+            isMoving = false;
+            return;
+        }
+
+        Transform target = targetCell.CellTransform;
 
         if (target == null)
         {
@@ -48,16 +81,22 @@ public class BoardPathMover : MonoBehaviour
             return;
         }
 
+        currentSpeed = Mathf.MoveTowards(
+            currentSpeed,
+            moveSpeed,
+            acceleration * Time.deltaTime
+        );
+
         transform.position = Vector3.MoveTowards(
             transform.position,
             target.position,
-            moveSpeed * Time.deltaTime
+            currentSpeed * Time.deltaTime
         );
 
         if (Vector3.Distance(transform.position, target.position) < 0.01f)
         {
             transform.position = target.position;
-            currentWaypointIndex = targetWaypointIndex;
+            currentCell = targetCell;
             isMoving = false;
             if (remainingSteps > 0)
             {
@@ -72,14 +111,44 @@ public class BoardPathMover : MonoBehaviour
 
     public void MoveToNextWaypoint()
     {
-        if (isMoving || boardPath == null || boardPath.WaypointCount == 0)
+        if (isMoving || currentCell == null)
+            return;
+
+        if (waitingForBranchChoice)
             return;
 
         if (remainingSteps <= 0)
             return;
 
-        targetWaypointIndex =
-            (currentWaypointIndex + 1) % boardPath.WaypointCount;
+        if (currentCell.NextCellCount == 0)
+        {
+            Debug.LogError(
+                $"BoardPathMover: {currentCell.name} has no next cells.",
+                currentCell
+            );
+
+            remainingSteps = 0;
+            OnMovementComplete?.Invoke();
+            return;
+        }
+
+        if (currentCell.HasMultipleNextCells())
+        {
+            waitingForBranchChoice = true;
+            ShowBranchChoices(); // Включает подсветку развилки
+            Debug.Log($"Waiting for branch choice at {currentCell.name}", this);
+            return;
+        }
+
+        targetCell = currentCell.GetNextCell(0);
+
+        if (targetCell == null)
+        {
+            currentSpeed = 0f;
+            remainingSteps = 0;
+            OnMovementComplete?.Invoke();
+            return;
+        }
 
         remainingSteps--;
         isMoving = true;
@@ -87,10 +156,80 @@ public class BoardPathMover : MonoBehaviour
 
     public void MoveSteps(int steps)
     {
-        if (isMoving || boardPath == null || steps <= 0)
+        if (isMoving || currentCell == null || steps <= 0)
             return;
 
+        currentSpeed = 0;
         remainingSteps = steps;
         MoveToNextWaypoint();
     }
+
+    public void SelectBranch(int branchIndex)
+    {
+        if (!waitingForBranchChoice)
+            return;
+
+        if (branchIndex < 0 || branchIndex >= currentCell.NextCellCount)
+        {
+            Debug.LogWarning("Invalid branch index.", this);
+            return;
+        }
+
+        waitingForBranchChoice = false;
+        ClearBranchChoices(); // Выключает подсвтку развилки
+        targetCell = currentCell.GetNextCell(branchIndex);
+
+        remainingSteps--;
+        isMoving = true;
+    }
+
+    public void TrySelectBranch(BoardCell selectedCell)
+    {
+        if (!waitingForBranchChoice || selectedCell == null)
+            return;
+
+        for (int i = 0; i < currentCell.NextCellCount; i++)
+        {
+            if (currentCell.GetNextCell(i) == selectedCell)
+            {
+                SelectBranch(i);
+                return;
+            }
+        }
+    }
+
+    #region ПОДСВЕТКА РАЗВИЛКИ
+    private void ShowBranchChoices()
+    {
+        highlightedCells = new BoardCellView[currentCell.NextCellCount];
+
+        for (int i = 0; i < currentCell.NextCellCount; i++)
+        {
+            BoardCell nextCell = currentCell.GetNextCell(i);
+            BoardCellView view = nextCell.GetComponentInChildren<BoardCellView>();
+
+            if (view != null)
+            {
+                highlightedCells[i] = view;
+                view.SetHighlighted(true);
+            }
+        }
+    }
+
+    private void ClearBranchChoices()
+    {
+        if (highlightedCells == null)
+            return;
+
+        foreach (BoardCellView view in highlightedCells)
+        {
+            if (view != null)
+                view.SetHighlighted(false);
+        }
+
+        highlightedCells = null;
+    }
+    #endregion
+
+
 }
